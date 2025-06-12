@@ -1,0 +1,30 @@
+package com.icegreen.greenmail.webapp.api.dto;
+
+public class HeaderApiModel {
+    private String name;
+    private String value;
+
+    public HeaderApiModel() {
+    }
+
+    public HeaderApiModel(String name, String value) {
+        this.name = name;
+        this.value = value;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    public void setValue(String value) {
+        this.value = value;
+    }
+}
