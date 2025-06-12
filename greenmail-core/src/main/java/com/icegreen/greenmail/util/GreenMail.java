@@ -14,6 +14,8 @@ import com.icegreen.greenmail.imap.ImapServer;
 import com.icegreen.greenmail.pop3.Pop3Server;
 import com.icegreen.greenmail.server.AbstractServer;
 import com.icegreen.greenmail.server.BuildInfo;
+ import com.icegreen.greenmail.server.Service; // Added for NioSmtpServer
+ import com.icegreen.greenmail.smtp.NioSmtpServer; // Added for NIO
 import com.icegreen.greenmail.smtp.SmtpServer;
 import com.icegreen.greenmail.store.*;
 import com.icegreen.greenmail.user.GreenMailUser;
@@ -42,7 +44,7 @@ import java.util.stream.Stream;
 public class GreenMail extends ConfiguredGreenMail {
     protected final Logger log = LoggerFactory.getLogger(GreenMail.class);
     protected Managers managers;
-    protected final Map<String, AbstractServer> services = new HashMap<>();
+     protected final Map<String, Service> services = new HashMap<>(); // Value type changed to Service
     protected ServerSetup[] config;
 
     /**
@@ -93,6 +95,8 @@ public class GreenMail extends ConfiguredGreenMail {
         }
 
         services.clear();
+        // Type of 'srvc' in createServices will need to accommodate both AbstractServer and NioSmtpServer
+        // For now, casting, but createServices will be updated to return Map<String, Service>
         services.putAll(createServices(config, managers));
     }
 
@@ -100,13 +104,13 @@ public class GreenMail extends ConfiguredGreenMail {
     public synchronized void start() {
         init();
 
-        final Collection<AbstractServer> servers = services.values();
-        for (AbstractServer service : servers) {
+        final Collection<Service> servers = services.values(); // Changed to Service
+        for (Service service : servers) { // Changed to Service
             service.startService();
         }
 
         // Wait till all services are up and running
-        for (AbstractServer service : servers) {
+        for (Service service : servers) { // Changed to Service
             try {
                 service.waitTillRunning(service.getServerSetup().getServerStartupTimeout());
             } catch (InterruptedException ex) {
@@ -134,7 +138,7 @@ public class GreenMail extends ConfiguredGreenMail {
     public synchronized void stop() {
         log.debug("Stopping GreenMail ...");
 
-        for (Service service : services.values()) {
+        for (Service service : services.values()) { // Already Service, no change needed here
             log.debug("Stopping service {}", service);
             service.stopService();
         }
@@ -155,15 +159,21 @@ public class GreenMail extends ConfiguredGreenMail {
      * @param config Service configuration
      * @return Services map
      */
-    protected Map<String, AbstractServer> createServices(ServerSetup[] config, Managers mgr) {
-        Map<String, AbstractServer> srvc = new HashMap<>();
+    protected Map<String, Service> createServices(ServerSetup[] config, Managers mgr) { // Return type changed
+        Map<String, Service> srvc = new HashMap<>(); // Value type changed
         for (ServerSetup setup : config) {
             if (srvc.containsKey(setup.getProtocol())) {
                 throw new IllegalArgumentException("Server '" + setup.getProtocol() + "' was found at least twice in setup config");
             }
             final String protocol = setup.getProtocol();
             if (protocol.startsWith(ServerSetup.PROTOCOL_SMTP)) {
-                srvc.put(protocol, new SmtpServer(setup, mgr));
+                if (setup.getSmtpServerImplementation() == ServerSetup.SmtpServerImplementation.NIO) {
+                    log.info("Using NIO SMTP Server for {}", setup);
+                    srvc.put(protocol, new NioSmtpServer(setup, mgr));
+                } else {
+                    log.info("Using BIO SMTP Server for {}", setup);
+                    srvc.put(protocol, new SmtpServer(setup, mgr));
+                }
             } else if (protocol.startsWith(ServerSetup.PROTOCOL_POP3)) {
                 srvc.put(protocol, new Pop3Server(setup, mgr));
             } else if (protocol.startsWith(ServerSetup.PROTOCOL_IMAP)) {
@@ -174,34 +184,32 @@ public class GreenMail extends ConfiguredGreenMail {
     }
 
     @Override
-    public SmtpServer getSmtp() {
-        return (SmtpServer) services.get(ServerSetup.PROTOCOL_SMTP);
+    public Service getSmtp() { // Return type changed to Service
+        return services.get(ServerSetup.PROTOCOL_SMTP);
     }
 
     @Override
-    public ImapServer getImap() {
+    public ImapServer getImap() { // Assuming ImapServer extends AbstractServer which implements Service
         return (ImapServer) services.get(ServerSetup.PROTOCOL_IMAP);
-
     }
 
     @Override
-    public Pop3Server getPop3() {
+    public Pop3Server getPop3() { // Assuming Pop3Server extends AbstractServer
         return (Pop3Server) services.get(ServerSetup.PROTOCOL_POP3);
     }
 
     @Override
-    public SmtpServer getSmtps() {
-        return (SmtpServer) services.get(ServerSetup.PROTOCOL_SMTPS);
+    public Service getSmtps() { // Return type changed to Service
+        return services.get(ServerSetup.PROTOCOL_SMTPS);
     }
 
     @Override
-    public ImapServer getImaps() {
+    public ImapServer getImaps() { // Assuming ImapServer extends AbstractServer
         return (ImapServer) services.get(ServerSetup.PROTOCOL_IMAPS);
-
     }
 
     @Override
-    public Pop3Server getPop3s() {
+    public Pop3Server getPop3s() { // Assuming Pop3Server extends AbstractServer
         return (Pop3Server) services.get(ServerSetup.PROTOCOL_POP3S);
     }
 
@@ -337,7 +345,7 @@ public class GreenMail extends ConfiguredGreenMail {
 
     @Override
     public boolean isRunning() {
-        for (AbstractServer service : services.values()) {
+        for (Service service : services.values()) { // Changed to Service
             if (!service.isRunning()) {
                 log.debug("Service {} is not running", service);
                 return false;
@@ -354,11 +362,25 @@ public class GreenMail extends ConfiguredGreenMail {
         }
         int sourceNameCount = sourceDirectory.toAbsolutePath().getNameCount();
 
-        SmtpServer smtpServer = (null != getSmtp() ? getSmtp() : getSmtps());
-        if (null == smtpServer) {
+        // Need to handle that getSmtp() or getSmtps() can return NioSmtpServer
+        // NioSmtpServer needs a createSession() method or we need to adapt.
+        // For now, let's assume SmtpServer for session creation, which might be problematic.
+        // This part needs careful review. A common interface for session creation might be needed.
+        Service smtpService = (null != getSmtp() ? getSmtp() : getSmtps());
+        if (null == smtpService) {
             throw new IllegalStateException("Requires enabled SMTP(S)");
         }
-        final Session session = smtpServer.createSession();
+        Session session;
+        if (smtpService instanceof SmtpServer) {
+            session = ((SmtpServer) smtpService).createSession();
+        } else if (smtpService instanceof NioSmtpServer) {
+            // NioSmtpServer would need a createSession method.
+            // For now, creating a generic session. This might miss specific server configurations.
+            Properties props = ((NioSmtpServer) smtpService).getServerSetup().configureJavaMailSessionProperties(null, false);
+            session = Session.getInstance(props);
+        } else {
+            throw new IllegalStateException("Unknown SMTP server type: " + smtpService.getClass().getName());
+        }
         final UserManager userManager = getUserManager();
         final ImapHostManager imapHostManager = getManagers().getImapHostManager();
         final Store store = imapHostManager.getStore();

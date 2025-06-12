@@ -26,6 +26,13 @@ import java.util.function.UnaryOperator;
  * Use {@link ServerSetupTest} for non-default ports
  */
 public class ServerSetup {
+    /**
+     * Defines the SMTP server implementation type.
+     */
+    public enum SmtpServerImplementation {
+        BIO, NIO
+    }
+
     public static final String PROTOCOL_SMTP = "smtp";
     public static final String PROTOCOL_SMTPS = "smtps";
     public static final String PROTOCOL_POP3 = "pop3";
@@ -81,6 +88,7 @@ public class ServerSetup {
     private long connectionTimeout = -1L;
     private long writeTimeout = -1L;
     private boolean verbose = false;
+    private SmtpServerImplementation smtpServerImplementation = SmtpServerImplementation.BIO; // Default to BIO
 
     /**
      * Timeout when GreenMail starts a server, in milliseconds.
@@ -103,6 +111,26 @@ public class ServerSetup {
             this.bindAddress = bindAddress;
         }
         this.protocol = protocol;
+    }
+
+    /**
+     * Sets the SMTP server implementation type.
+     *
+     * @param implementation the desired SMTP server implementation.
+     * @return this ServerSetup instance for chaining.
+     */
+    public ServerSetup smtpImplementation(SmtpServerImplementation implementation) {
+        if (protocol.equals(PROTOCOL_SMTP) || protocol.equals(PROTOCOL_SMTPS)) {
+            this.smtpServerImplementation = implementation;
+        } else if (implementation == SmtpServerImplementation.NIO) {
+            // Only throw if trying to set NIO on non-SMTP protocol. BIO is default and fine.
+            throw new IllegalArgumentException("NIO implementation is only applicable to SMTP/S protocols.");
+        }
+        return this;
+    }
+
+    public SmtpServerImplementation getSmtpServerImplementation() {
+        return smtpServerImplementation;
     }
 
     public static String getLocalHostAddress() {
@@ -333,6 +361,7 @@ public class ServerSetup {
             writeTimeout == that.writeTimeout &&
             verbose == that.verbose &&
             serverStartupTimeout == that.serverStartupTimeout &&
+            smtpServerImplementation == that.smtpServerImplementation && // Check new field
             bindAddress.equals(that.bindAddress) &&
             protocol.equals(that.protocol) &&
             mailSessionProperties.equals(that.mailSessionProperties);
@@ -340,7 +369,7 @@ public class ServerSetup {
 
     @Override
     public int hashCode() {
-        return Objects.hash(port, bindAddress, protocol, readTimeout, connectionTimeout, writeTimeout, verbose, serverStartupTimeout, mailSessionProperties);
+        return Objects.hash(port, bindAddress, protocol, readTimeout, connectionTimeout, writeTimeout, verbose, serverStartupTimeout, mailSessionProperties, smtpServerImplementation); // Include new field
     }
 
     @Override
@@ -354,6 +383,7 @@ public class ServerSetup {
             ", writeTimeout=" + writeTimeout +
             ", verbose=" + verbose +
             ", serverStartupTimeout=" + serverStartupTimeout +
+            ", smtpServerImplementation=" + smtpServerImplementation + // Include new field
             ", mailProperties=" + mailSessionProperties +
             '}';
     }
@@ -394,6 +424,10 @@ public class ServerSetup {
         setup.setWriteTimeout(getWriteTimeout());
         setup.setVerbose(isVerbose());
         setup.mailSessionProperties.putAll(mailSessionProperties);
+        // Propagate the SMTP implementation type
+        if (setup.getProtocol().equals(PROTOCOL_SMTP) || setup.getProtocol().equals(PROTOCOL_SMTPS)) {
+            setup.smtpImplementation(getSmtpServerImplementation());
+        }
 
         return setup;
     }
