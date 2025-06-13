@@ -8,6 +8,7 @@ import com.icegreen.greenmail.imap.ImapHostManager;
 import com.icegreen.greenmail.imap.ImapHostManagerImpl;
 import com.icegreen.greenmail.smtp.SmtpManager;
 import com.icegreen.greenmail.store.InMemoryStore;
+import com.icegreen.greenmail.store.S3MySQLStore; // Added import
 import com.icegreen.greenmail.user.UserManager;
 
 /**
@@ -16,7 +17,7 @@ import com.icegreen.greenmail.user.UserManager;
  * @since Jan 27, 2006
  */
 public class Managers {
-    private final ImapHostManager imapHostManager = new ImapHostManagerImpl(new InMemoryStore());
+    private final ImapHostManager imapHostManager = new ImapHostManagerImpl(new S3MySQLStore()); // Replaced InMemoryStore
     private final UserManager userManager = new UserManager(imapHostManager);
     private final SmtpManager smtpManager = new SmtpManager(imapHostManager, userManager);
 
